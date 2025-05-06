@@ -1,0 +1,210 @@
+ # api/views.py
+from collections import defaultdict
+
+from django.http import FileResponse
+from django.utils import timezone
+
+from djoser.views import UserViewSet as BaseUserController
+from djoser.serializers import UserCreateSerializer
+
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.generics import get_object_or_404
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.response import Response
+
+from recipes.models import Ingredient, Recipe, Favorite, ShoppingList
+from users.models import CustomUser, Follow
+
+from .pagination import CustomPagination
+from .serializers import (
+    IngredientMapper,
+    RecipeDetailSerializer,
+    CompactRecipeSerializer,
+    AuthorWithRecipesSerializer,
+    ProfileSerializer,
+)
+
+
+class ComponentListView(viewsets.ReadOnlyModelViewSet):
+    """Получение списка компонентов."""
+    queryset = Ingredient.objects.all()
+    serializer_class = IngredientMapper
+    pagination_class = None
+
+    def get_queryset(self):
+        search_term = self.request.query_params.get("query")
+        base_qs = super().get_queryset()
+        if search_term:
+            # исправлено: в модели Ingredient поле называется name
+            return base_qs.filter(name__istartswith=search_term.lower())
+        return base_qs
+
+
+class DishController(viewsets.ModelViewSet):
+    """Управление рецептами и связанными действиями."""
+    queryset = Recipe.objects.all()
+    serializer_class = RecipeDetailSerializer
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    pagination_class = CustomPagination
+
+    @staticmethod
+    def _handle_bookmark(request, recipe_instance, relation_model):
+        if request.method == "POST":
+            entry, created = relation_model.objects.get_or_create(
+                user=request.user,
+                recipe=recipe_instance,
+            )
+            if not created:
+                raise ValidationError({"error": "Уже присутствует"})
+            return Response(
+                CompactRecipeSerializer(recipe_instance).data,
+                status=status.HTTP_201_CREATED,
+            )
+        relation_model.objects.filter(
+            user=request.user, recipe=recipe_instance
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def filter_queryset(self, queryset):
+        filters = self.request.query_params
+        filtered_qs = super().filter_queryset(queryset)
+
+        if author_id := filters.get("creator"):
+            filtered_qs = filtered_qs.filter(author_id=author_id)
+
+        if filters.get("bookmarked") == "1" and self.request.user.is_authenticated:
+            filtered_qs = filtered_qs.filter(favorited_by__user=self.request.user)
+
+        if filters.get("in_cart") == "1" and self.request.user.is_authenticated:
+            filtered_qs = filtered_qs.filter(in_shopping_lists__user=self.request.user)
+
+        return filtered_qs
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
+
+    @action(detail=True, methods=["post", "delete"], url_path="bookmark")
+    def add_to_favorites(self, request, pk=None):
+        recipe = get_object_or_404(Recipe, pk=pk)
+        return self._handle_bookmark(request, recipe, Favorite)
+
+    @action(detail=True, methods=["post", "delete"], url_path="cart")
+    def manage_cart(self, request, pk=None):
+        recipe = get_object_or_404(Recipe, pk=pk)
+        return self._handle_bookmark(request, recipe, ShoppingList)
+
+    @action(detail=False, methods=["get"], url_path="export_cart")
+    def export_shopping_list(self, request):
+        if not request.user.is_authenticated:
+            return Response(
+                {"detail": "Требуется авторизация"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        ingredient_totals = defaultdict(int)
+        recipe_names = set()
+
+        for cart_item in request.user.shopping_lists.select_related("recipe"):
+            recipe_names.add(cart_item.recipe.name)
+            for component in cart_item.recipe.components_amounts.select_related("ingredient"):
+                key = (component.ingredient.name, component.ingredient.measurement_unit)
+                ingredient_totals[key] += component.quantity
+
+        current_date = timezone.localdate().strftime("%Y-%m-%d")
+        report_lines = [
+            f"Список покупок ({current_date}):",
+            "Ингредиенты:",
+        ]
+
+        for idx, ((name, unit), total) in enumerate(sorted(ingredient_totals.items()), 1):
+            report_lines.append(f"{idx}. {name.title()} ({unit}) - {total}")
+
+        report_lines.append("\nИсточники рецептов:")
+        for idx, name in enumerate(sorted(recipe_names), 1):
+            report_lines.append(f"{idx}. {name}")
+
+        file_content = "\n".join(report_lines)
+        return FileResponse(
+            file_content,
+            content_type="text/plain",
+            filename="grocery_list.txt",
+        )
+
+
+class AccountManager(BaseUserController):
+    """
+    Управление учетными записями и подписками.
+    Теперь умеет обрабатывать POST /api/users/ через Djoser‑сериализатор регистрации.
+    """
+    queryset = CustomUser.objects.all()
+    serializer_class = ProfileSerializer
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    pagination_class = CustomPagination
+
+    def create(self, request, *args, **kwargs):
+        # Используем Djoser‑сериализатор для создания пользователя
+        create_ser = UserCreateSerializer(data=request.data, context={'request': request})
+        create_ser.is_valid(raise_exception=True)
+        user = create_ser.save()
+
+        # Возвращаем уже свой профильный сериализатор
+        output_ser = ProfileSerializer(user, context={'request': request})
+        return Response(output_ser.data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        permission_classes=[IsAuthenticated],
+        url_path="profile"
+    )
+    def current_profile(self, request):
+        return Response(self.get_serializer(request.user).data)
+
+    @action(detail=True, methods=["post", "delete"], url_path="follow")
+    def follow_author(self, request, id=None):
+        target_user = get_object_or_404(CustomUser, pk=id)
+
+        if target_user == request.user:
+            raise ValidationError({"error": "Нельзя подписаться на самого себя"})
+
+        if request.method == "POST":
+            subscription, created = Follow.objects.get_or_create(
+                follower=request.user,
+                following=target_user,
+            )
+            if not created:
+                raise ValidationError({"error": "Вы уже подписаны"})
+            return Response(
+                {"follower": subscription.follower.username, "following": target_user.username},
+                status=status.HTTP_201_CREATED,
+            )
+
+        Follow.objects.filter(
+            follower=request.user,
+            following=target_user,
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["get"], url_path="following")
+    def subscribed_list(self, request):
+        if not request.user.is_authenticated:
+            return Response(
+                {"error": "Необходима авторизация"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        subscriptions = request.user.following.select_related("following")
+        paginator = PageNumberPagination()
+        paginator.page_size = int(request.query_params.get("limit", 6))
+        page = paginator.paginate_queryset(subscriptions, request)
+
+        authors = [sub.following for sub in page]
+        serializer = AuthorWithRecipesSerializer(
+            authors,
+            many=True,
+            context={"request": request},
+        )
+        return paginator.get_paginated_response(serializer.data)
