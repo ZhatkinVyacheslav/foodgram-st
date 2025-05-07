@@ -34,7 +34,7 @@ class CustomUserSerializer(BaseUserSerializer):
 class BasicUserSerializer(CustomUserSerializer):
     """Компактный пользовательский сериализатор с подсчетом рецептов."""
     recipes_count = serializers.IntegerField(
-        source='created_recipes.count',
+        source='created_dishes.count',
         read_only=True
     )
 
@@ -61,5 +61,5 @@ class FollowSerializer(BasicUserSerializer):
         """Получение ограниченного количества авторских рецептов."""
         request = self.context.get('request')
         limit = int(request.query_params.get('recipes_limit', 10**10)) if request else None
-        recipes = obj.created_recipes.all()[:limit] if limit else obj.created_recipes.none()
+        recipes = obj.created_dishes.all()[:limit] if limit else obj.created_dishes.none()
         return CompactRecipeSerializer(recipes, many=True).data

@@ -27,7 +27,7 @@ class CustomUserViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
 
-    @action(detail=False, methods=['put', 'delete'], url_path='me/profile-image')
+    @action(detail=False, methods=['put', 'delete'], url_path='me/avatar')
     def profile_image(self, request):
         """Обновить или удалить изображение профиля пользователя."""
         user = request.user
@@ -52,7 +52,7 @@ class CustomUserViewSet(viewsets.ModelViewSet):
             status=status.HTTP_204_NO_CONTENT
         )
 
-    @action(detail=True, methods=['post', 'delete'], url_path='follow')
+    @action(detail=True, methods=['post', 'delete'], url_path='subscribe')
     def follow(self, request, pk=None):
         """Подписаться или отписаться от других пользователей"""
         following_user = get_object_or_404(CustomUser, pk=pk)
@@ -83,7 +83,7 @@ class CustomUserViewSet(viewsets.ModelViewSet):
         follow.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(detail=False, methods=['get'], url_path='following')
+    @action(detail=False, methods=['get'], url_path='subscriptions')
     def following(self, request):
         """Список всех пользователей на которых подписан текущий пользователь."""
         following_users = request.user.following.select_related('following')
