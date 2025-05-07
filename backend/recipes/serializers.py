@@ -2,7 +2,7 @@ from rest_framework import serializers
 from drf_extra_fields.fields import Base64ImageField
 from django.core.validators import MinValueValidator
 
-from recipes.models import Recipe, Ingredient, RecipeIngredient
+from recipes.models import Dish, Ingredient, Ingredient
 
 
 class IngredientSerializer(serializers.ModelSerializer):
@@ -34,7 +34,7 @@ class RecipeIngredientSerializer(serializers.ModelSerializer):
     )
 
     class Meta:
-        model = RecipeIngredient
+        model = Ingredient
         fields = ("id", "name", "measurement_unit", "amount")
 
 
@@ -51,7 +51,7 @@ class RecipeSerializer(serializers.ModelSerializer):
     in_shopping_list = serializers.SerializerMethodField()
 
     class Meta:
-        model = Recipe
+        model = Dish
         fields = (
             "id",
             "name",
@@ -86,6 +86,6 @@ class CompactRecipeSerializer(serializers.ModelSerializer):
     """Компактный сериализатор для рецептов."""
     
     class Meta:
-        model = Recipe
+        model = Dish
         fields = ("id", "name", "image", "cooking_time")
         read_only_fields = fields

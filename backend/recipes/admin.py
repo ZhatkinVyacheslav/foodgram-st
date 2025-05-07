@@ -2,8 +2,8 @@ from django.contrib import admin
 
 from recipes.models import (
     Ingredient,
-    Recipe,
-    RecipeComponent,
+    Dish,
+    IngredientAmount,
     Favorite,
     ShoppingList,
 )
@@ -17,7 +17,7 @@ class IngredientAdmin(admin.ModelAdmin):
     ordering = ("name",)
 
 
-@admin.register(Recipe)
+@admin.register(Dish)
 class RecipeAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "author", "favorites_count")
     search_fields = ("name__icontains", "author__username")
@@ -29,7 +29,7 @@ class RecipeAdmin(admin.ModelAdmin):
         return obj.favorited_by.count()
 
 
-@admin.register(RecipeComponent)
+@admin.register(IngredientAmount)
 class RecipeComponentAdmin(admin.ModelAdmin):
     list_display = ("recipe", "ingredient", "quantity")
     search_fields = (

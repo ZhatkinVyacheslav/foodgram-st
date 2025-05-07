@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 
 from django.shortcuts import get_object_or_404
-from recipes.models import Recipe, Favorite, ShoppingList
+from recipes.models import Dish, Favorite, ShoppingList
 from recipes.serializers import RecipeSerializer, CompactRecipeSerializer
 from api.pagination import CustomPagination
 
@@ -13,7 +13,7 @@ from api.pagination import CustomPagination
 class RecipeViewSet(viewsets.ModelViewSet):
     """API endpoint для работы с рецептами."""
     
-    queryset = Recipe.objects.all()
+    queryset = Dish.objects.all()
     serializer_class = RecipeSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     pagination_class = CustomPagination
@@ -71,7 +71,7 @@ class RecipeViewSet(viewsets.ModelViewSet):
     )
     def favorite_recipe(self, request, pk=None):
         """Добавляет или удаляет рецепт из избранного."""
-        recipe = get_object_or_404(Recipe, pk=pk)
+        recipe = get_object_or_404(Dish, pk=pk)
         return self._modify_recipe_list(request, recipe, Favorite)
 
     @action(
@@ -82,5 +82,18 @@ class RecipeViewSet(viewsets.ModelViewSet):
     )
     def shopping_list(self, request, pk=None):
         """Добавляет или удаляет рецепт из списка покупок."""
-        recipe = get_object_or_404(Recipe, pk=pk)
+        recipe = get_object_or_404(Dish, pk=pk)
         return self._modify_recipe_list(request, recipe, ShoppingList)
+    
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return Response(
+                {"detail": "Проверьте обязательные поля", "errors": e.detail},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)

@@ -15,38 +15,41 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
-from recipes.models import Ingredient, Recipe, Favorite, ShoppingList
+from recipes.models import Ingredient, Dish, Favorite, ShoppingList
 from users.models import CustomUser, Follow
 
 from .pagination import CustomPagination
 from .serializers import (
-    IngredientMapper,
-    RecipeDetailSerializer,
-    CompactRecipeSerializer,
-    AuthorWithRecipesSerializer,
-    ProfileSerializer,
+    IngredientSerializer,
+    RecipeSerializer,
+    ShortRecipeSerializer,
+    SubscribedAuthorSerializer,
+    PublicUserSerializer,
 )
 
 
 class ComponentListView(viewsets.ReadOnlyModelViewSet):
     """Получение списка компонентов."""
     queryset = Ingredient.objects.all()
-    serializer_class = IngredientMapper
+    serializer_class = IngredientSerializer  # <-- поменяли сериализатор
     pagination_class = None
 
     def get_queryset(self):
-        search_term = self.request.query_params.get("query")
+        search_term = (
+            self.request.query_params.get("query")
+            or self.request.query_params.get("name")
+            or self.request.query_params.get("search")
+        )
         base_qs = super().get_queryset()
         if search_term:
-            # исправлено: в модели Ingredient поле называется name
             return base_qs.filter(name__istartswith=search_term.lower())
         return base_qs
 
 
 class DishController(viewsets.ModelViewSet):
     """Управление рецептами и связанными действиями."""
-    queryset = Recipe.objects.all()
-    serializer_class = RecipeDetailSerializer
+    queryset = Dish.objects.all()
+    serializer_class = RecipeSerializer
     permission_classes = (IsAuthenticatedOrReadOnly,)
     pagination_class = CustomPagination
 
@@ -60,7 +63,7 @@ class DishController(viewsets.ModelViewSet):
             if not created:
                 raise ValidationError({"error": "Уже присутствует"})
             return Response(
-                CompactRecipeSerializer(recipe_instance).data,
+                ShortRecipeSerializer(recipe_instance).data,
                 status=status.HTTP_201_CREATED,
             )
         relation_model.objects.filter(
@@ -88,12 +91,12 @@ class DishController(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post", "delete"], url_path="bookmark")
     def add_to_favorites(self, request, pk=None):
-        recipe = get_object_or_404(Recipe, pk=pk)
+        recipe = get_object_or_404(Dish, pk=pk)
         return self._handle_bookmark(request, recipe, Favorite)
 
     @action(detail=True, methods=["post", "delete"], url_path="cart")
     def manage_cart(self, request, pk=None):
-        recipe = get_object_or_404(Recipe, pk=pk)
+        recipe = get_object_or_404(Dish, pk=pk)
         return self._handle_bookmark(request, recipe, ShoppingList)
 
     @action(detail=False, methods=["get"], url_path="export_cart")
@@ -140,7 +143,7 @@ class AccountManager(BaseUserController):
     Теперь умеет обрабатывать POST /api/users/ через Djoser‑сериализатор регистрации.
     """
     queryset = CustomUser.objects.all()
-    serializer_class = ProfileSerializer
+    serializer_class = PublicUserSerializer
     permission_classes = (IsAuthenticatedOrReadOnly,)
     pagination_class = CustomPagination
 
@@ -151,7 +154,7 @@ class AccountManager(BaseUserController):
         user = create_ser.save()
 
         # Возвращаем уже свой профильный сериализатор
-        output_ser = ProfileSerializer(user, context={'request': request})
+        output_ser = PublicUserSerializer(user, context={'request': request})
         return Response(output_ser.data, status=status.HTTP_201_CREATED)
 
     @action(
@@ -202,7 +205,7 @@ class AccountManager(BaseUserController):
         page = paginator.paginate_queryset(subscriptions, request)
 
         authors = [sub.following for sub in page]
-        serializer = AuthorWithRecipesSerializer(
+        serializer = SubscribedAuthorSerializer(
             authors,
             many=True,
             context={"request": request},
