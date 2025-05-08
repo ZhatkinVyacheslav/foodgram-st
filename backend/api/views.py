@@ -3,6 +3,8 @@ from collections import defaultdict
 
 from django.http import FileResponse
 from django.utils import timezone
+from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Prefetch
 
 from djoser.views import UserViewSet as BaseUserController
 from djoser.serializers import UserCreateSerializer
@@ -17,34 +19,24 @@ from rest_framework.response import Response
 
 from recipes.models import Ingredient, Dish, Favorite, ShoppingList
 from users.models import CustomUser, Follow
-
+from .filters import IngredientFilter, DishFilter
 from .pagination import CustomPagination
 from .serializers import (
     IngredientSerializer,
     RecipeSerializer,
-    ShortRecipeSerializer,
+    CompactRecipeSerializer,
     SubscribedAuthorSerializer,
     PublicUserSerializer,
 )
 
 
-class ComponentListView(viewsets.ReadOnlyModelViewSet):
+class ComponentListController(viewsets.ReadOnlyModelViewSet):
     """Получение списка компонентов."""
     queryset = Ingredient.objects.all()
-    serializer_class = IngredientSerializer  # <-- поменяли сериализатор
+    serializer_class = IngredientSerializer
     pagination_class = None
-
-    def get_queryset(self):
-        """Фильтрация ингрединтов по запросу."""
-        search_term = (
-            self.request.query_params.get("query")
-            or self.request.query_params.get("name")
-            or self.request.query_params.get("search")
-        )
-        base_qs = super().get_queryset()
-        if search_term:
-            return base_qs.filter(name__istartswith=search_term.lower())
-        return base_qs
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = IngredientFilter
 
 
 class DishController(viewsets.ModelViewSet):
@@ -53,9 +45,9 @@ class DishController(viewsets.ModelViewSet):
     serializer_class = RecipeSerializer
     permission_classes = (IsAuthenticatedOrReadOnly,)
     pagination_class = CustomPagination
-
-    @staticmethod
-    def _handle_bookmark(request, recipe_instance, relation_model):
+    filterset_class = DishFilter
+    
+    def _handle_bookmark(self, request, recipe_instance, relation_model):
         """Унифицированный метод для добавления/удаления из избранного или корзины."""
         if request.method == "POST":
             entry, created = relation_model.objects.get_or_create(
@@ -65,7 +57,7 @@ class DishController(viewsets.ModelViewSet):
             if not created:
                 raise ValidationError({"error": "Уже добавлено"})
             return Response(
-                ShortRecipeSerializer(recipe_instance).data,
+                CompactRecipeSerializer(recipe_instance).data,
                 status=status.HTTP_201_CREATED,
             )
         relation_model.objects.filter(
@@ -73,71 +65,36 @@ class DishController(viewsets.ModelViewSet):
         ).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def filter_queryset(self, queryset):
-        """Фильтрация рецептов."""
-        filters = self.request.query_params
-        filtered_qs = super().filter_queryset(queryset)
-
-        if author_id := filters.get("creator"):
-            filtered_qs = filtered_qs.filter(author_id=author_id)
-
-        if filters.get("bookmarked") == "1" and self.request.user.is_authenticated:
-            filtered_qs = filtered_qs.filter(favorited_by__user=self.request.user)
-
-        if filters.get("in_cart") == "1" and self.request.user.is_authenticated:
-            filtered_qs = filtered_qs.filter(in_shopping_lists__user=self.request.user)
-
-        return filtered_qs
-
     def perform_create(self, serializer):
         """Сохранение рецепта с указанием автора."""
-        try:
-            serializer.save(author=self.request.user)
-        except Exception as e:
-            logger.error(f"Error creating recipe: {str(e)}")
-            raise ValidationError({'detail': 'Ошибка при создании рецепта'})
+        serializer.save(author=self.request.user)
 
-    def create(self, request, *args, **kwargs):
-        """Создание Рецепта."""
-        serializer = self.get_serializer(data=request.data)
-        try:
-            serializer.is_valid(raise_exception=True)
-        except ValidationError as e:
-            return Response(
-                {"detail": "Проверьте обязательные поля", "errors": e.detail},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
-    @action(detail=True, methods=["post", "delete"], url_path="favorite")
+    @action(detail=True, methods=["post", "delete"], url_path="favorite", permission_classes=[IsAuthenticated])
     def add_to_favorites(self, request, pk=None):
         """Добавление или удаление рецепт из избранного."""
         recipe = get_object_or_404(Dish, pk=pk)
         return self._handle_bookmark(request, recipe, Favorite)
 
-    @action(detail=True, methods=["post", "delete"], url_path="shopping_cart")
+    @action(detail=True, methods=["post", "delete"], url_path="shopping_cart", permission_classes=[IsAuthenticated])
     def manage_cart(self, request, pk=None):
         """Добавление или удаление рецепт из корзины покупок."""
         recipe = get_object_or_404(Dish, pk=pk)
         return self._handle_bookmark(request, recipe, ShoppingList)
 
-    @action(detail=False, methods=["get"], url_path="download_shopping_cart")
+    @action(detail=False, methods=["get"], url_path="download_shopping_cart", permission_classes=[IsAuthenticated])
     def export_shopping_list(self, request):
         """Экспорт списка покупок пользователя в текстовый файл."""
-        if not request.user.is_authenticated:
-            return Response(
-                {"detail": "Требуется авторизация"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        
         ingredient_totals = defaultdict(int)
         recipe_names = set()
 
-        for cart_item in request.user.shopping_lists.select_related("recipe"):
+        shopping_list = request.user.shopping_lists.select_related("recipe").prefetch_related(
+            "recipe__components_amounts__ingredient"
+        )
+
+        for cart_item in shopping_list:
             recipe_names.add(cart_item.recipe.name)
-            for component in cart_item.recipe.components_amounts.select_related("ingredient"):
+            for component in cart_item.recipe.components_amounts.all():
                 key = (component.ingredient.name, component.ingredient.measurement_unit)
                 ingredient_totals[key] += component.quantity
 
@@ -155,6 +112,7 @@ class DishController(viewsets.ModelViewSet):
             report_lines.append(f"{idx}. {name}")
 
         file_content = "\n".join(report_lines)
+        
         return FileResponse(
             file_content,
             content_type="text/plain",
@@ -162,10 +120,9 @@ class DishController(viewsets.ModelViewSet):
         )
 
 
-class AccountManager(BaseUserController):
+class AccountController(BaseUserController):
     """
     Управление учетными записями и подписками.
-    Теперь умеет обрабатывать POST /api/users/ через Djoser‑сериализатор регистрации.
     """
     queryset = CustomUser.objects.all()
     serializer_class = PublicUserSerializer
@@ -226,7 +183,13 @@ class AccountManager(BaseUserController):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        subscriptions = request.user.following.select_related("following")
+        subscriptions = CustomUser.objects.prefetch_related(
+            Prefetch(
+                "following",
+                queryset=Follow.objects.filter(follower=request.user),
+                to_attr="subscribed_authors"
+            )
+        ).filter(following__follower=request.user)
         paginator = PageNumberPagination()
         paginator.page_size = int(request.query_params.get("limit", 6))
         page = paginator.paginate_queryset(subscriptions, request)

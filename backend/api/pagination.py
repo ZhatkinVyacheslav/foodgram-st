@@ -1,5 +1,5 @@
 from rest_framework.pagination import PageNumberPagination
-
+from django.conf import settings
 
 class CustomPagination(PageNumberPagination):
     """
@@ -8,5 +8,5 @@ class CustomPagination(PageNumberPagination):
     limit — элементов на страницу (по умолчанию — 6)
     """
 
-    page_size_query_param = "limit"
-    page_size = 6
+    default_limit_item_query_param = "limit"
+    default_limit_item = settings.DEFAULT_LIMIT_ITEM

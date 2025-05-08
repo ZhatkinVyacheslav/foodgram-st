@@ -20,7 +20,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
+    "django_filters",
+    
     "rest_framework",
     "rest_framework.authtoken",
     "rest_framework_simplejwt",
@@ -119,6 +120,9 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "api.pagination.CustomPagination",
     "PAGE_SIZE": 6,
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+    ],
 }
 
 DJOSER = {
@@ -131,7 +135,7 @@ DJOSER = {
         "user": ["djoser.permissions.CurrentUserOrAdminOrReadOnly"],
         "user_list": ["rest_framework.permissions.IsAuthenticatedOrReadOnly"],
     },
-    "HIDE_USERS": False,
+    "HIDE_USERS": False, 
 }
 
 # Доверенные Origin’ы для CSRF (схема://хост[:порт])
@@ -139,3 +143,13 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
     "http://localhost,http://127.0.0.1"
 ).split(",")
+
+# Константные значения
+DEFAULT_LIMIT_ITEM = 6
+MIN_COOKING_TIME = 1
+MAX_COOKING_TIME = 600
+MIN_INGREDIENT_AMOUNT = 1
+MAX_LENGHT_INGREDIENT_NAME = 128
+MAX_LENGHT_MEASUREMENT_UNIT = 64
+MIN_INGREDIENT_QUANTITY = 1
+MAX_LENGHT_DISH_NAME = 256

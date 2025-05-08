@@ -8,3 +8,4 @@ djangorestframework-simplejwt
 djoser
 drf-extra-fields
 flake8
+django-filter

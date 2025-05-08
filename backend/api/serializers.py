@@ -10,48 +10,36 @@ from recipes.models import (
     Favorite,
     ShoppingList,
 )
-from users.models import Follow
 
 
-class IngredientSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Ingredient
-        fields = ['id', 'name', 'measurement_unit']
-
-
-class IngredientAmountSerializer(serializers.ModelSerializer):
-    """Связка ингредиент — количество для рецепта."""
-
+class IngredientAmountWriteSerializer(serializers.ModelSerializer):
+    """Запись игредиентов"""
     id = serializers.PrimaryKeyRelatedField(
         queryset=Ingredient.objects.all(),
-        source="ingredient",
-    )
-    name = serializers.CharField(
-        source="ingredient.name", read_only=True
-    )
-    measurement_unit = serializers.CharField(
-        source="ingredient.measurement_unit", read_only=True
+        source="ingredient"
     )
     amount = serializers.IntegerField(
         source="quantity",
-        validators=[MinValueValidator(1, "Минимум 1")]
     )
+
+    class Meta:
+        model = IngredientAmount
+        fields = ("id", "amount")
+
+
+class IngredientAmountReadSerializer(serializers.ModelSerializer):
+    """Чтение игредиентов"""
+    id = serializers.ReadOnlyField(source="ingredient.id")
+    name = serializers.ReadOnlyField(source="ingredient.name")
+    measurement_unit = serializers.ReadOnlyField(source="ingredient.measurement_unit")
+    amount = serializers.ReadOnlyField(source="quantity")
 
     class Meta:
         model = IngredientAmount
         fields = ("id", "name", "measurement_unit", "amount")
 
 
-
-class ShortRecipeSerializer(serializers.ModelSerializer):
-    """Облегчённый рецепт (для списков)."""
-    class Meta:
-        model = Dish
-        fields = ("id", "name", "image", "cooking_time")
-
-
 class PublicUserSerializer(DjoserUserSerializer):
-    """Публичный пользователь с аватаром и подпиской."""
     avatar = Base64ImageField(required=False)
     is_subscribed = serializers.SerializerMethodField()
 
@@ -61,14 +49,13 @@ class PublicUserSerializer(DjoserUserSerializer):
     def get_is_subscribed(self, obj):
         request = self.context.get("request")
         return (
-            request and request.user.is_authenticated
-            and Follow.objects.filter(follower=request.user, following=obj).exists()
+            request
+            and request.user.is_authenticated
+            and obj.followers.filter(follower=request.user).exists()
         )
 
 
-
 class SubscribedAuthorSerializer(PublicUserSerializer):
-    """Пользователь-автор с ограниченным списком рецептов."""
     recipes = serializers.SerializerMethodField()
     recipes_count = serializers.IntegerField(
         source="recipes.count", read_only=True
@@ -78,29 +65,25 @@ class SubscribedAuthorSerializer(PublicUserSerializer):
         fields = (*PublicUserSerializer.Meta.fields, "recipes", "recipes_count")
 
     def get_recipes(self, author):
-        limit = int(
-            self.context["request"].query_params.get("recipes_limit", 10**10)
-        )
+        request = self.context.get("request")
+
+        if request is None:
+            return []
+
+        query_serializer = RecipesLimitQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        limit = query_serializer.validated_data.get("recipes_limit", 10**10)
         qs = author.recipes.all()[:limit]
-        from recipes.serializers import CompactRecipeSerializer
         return CompactRecipeSerializer(qs, many=True).data
-    
 
 
 class RecipeSerializer(serializers.ModelSerializer):
-    """Создание/редактирование рецепта."""
-
-    name = serializers.CharField(required=True)
-    text = serializers.CharField(required=True)
-    cooking_time = serializers.IntegerField(
-        required=True,
-        validators=[
-            MinValueValidator(1, "Минимум 1 минута"),
-            MaxValueValidator(600, "Максимум 600 минут")
-        ]
+    ingredients = IngredientAmountWriteSerializer(
+        source="components_amounts", many=True, write_only=True
     )
-    ingredients = IngredientAmountSerializer(
-        source="components_amounts", many=True, required=True
+    ingredients_data = IngredientAmountReadSerializer(
+        source="components_amounts", many=True, read_only=True
     )
     image = Base64ImageField(required=True)
     author = PublicUserSerializer(read_only=True)
@@ -111,8 +94,10 @@ class RecipeSerializer(serializers.ModelSerializer):
         model = Dish
         fields = (
             "id", "name", "text", "cooking_time", "image",
-            "author", "ingredients", "is_favorited", "is_in_shopping_cart"
+            "author", "ingredients", "ingredients_data",
+            "is_favorited", "is_in_shopping_cart"
         )
+        read_only_fields = ("author", "is_favorited", "is_in_shopping_cart")
 
     def validate_ingredients(self, value):
         if not value:
@@ -149,9 +134,34 @@ class RecipeSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         ingredients = validated_data.pop("components_amounts", [])
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
+        instance = super().update(instance, validated_data)
         instance.components_amounts.all().delete()
         self._bulk_save_ingredients(instance, ingredients)
+
         return instance
+
+class RecipesLimitQuerySerializer(serializers.Serializer):
+    recipes_limit = serializers.IntegerField(
+        required=False, min_value=1,
+        error_messages={
+            'invalid': 'recipes_limit должен быть числом',
+            'min_value': 'recipes_limit должен быть больше 0'
+        }
+    )
+
+
+class IngredientSerializer(serializers.ModelSerializer):
+    """Сериализатор данных ингредиентов (только чтение)."""
+    class Meta:
+        model = Ingredient
+        fields = ("id", "name", "measurement_unit")
+        read_only_fields = ("id", "name", "measurement_unit")
+
+
+class CompactRecipeSerializer(serializers.ModelSerializer):
+    """Компактный сериализатор для рецептов (для отображения)."""
+
+    class Meta:
+        model = Dish
+        fields = ("id", "name", "image", "cooking_time")
+        read_only_fields = fields
