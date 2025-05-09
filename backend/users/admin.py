@@ -7,7 +7,7 @@ from users.models import CustomUser, Follow
 @admin.register(CustomUser)
 class ExtendedUserAdmin(UserAdmin):
     """Расширенная административная панель для пользователей."""
-    
+
     list_display = (
         'pk',
         'email',
@@ -34,7 +34,7 @@ class ExtendedUserAdmin(UserAdmin):
 @admin.register(Follow)
 class SubscriptionAdmin(admin.ModelAdmin):
     """Администрирование подписок пользователей."""
-    
+
     list_display = ('follower', 'following', 'created_at')
     search_fields = (
         'follower__email',

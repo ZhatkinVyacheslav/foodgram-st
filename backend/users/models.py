@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.core.validators import RegexValidator
@@ -10,12 +11,12 @@ class CustomUser(AbstractUser):
     email = models.EmailField(
         _('email address'),
         unique=True,
-        max_length=254,
+        max_length=settings.MAX_EMAIL_LENGHTH,
         help_text=_('Required. 254 characters or fewer.')
     )
     username = models.CharField(
         _('username'),
-        max_length=150,
+        max_length=settings.MAX_LENGHTH_NAME,
         unique=True,
         validators=[
             RegexValidator(
@@ -23,16 +24,17 @@ class CustomUser(AbstractUser):
                 message=_('Allowed characters: letters, digits and @/./+/-/_'),
             )
         ],
-        help_text=_('150 characters or fewer. Letters, digits and @/./+/-/_ only.')
+        help_text=_(
+            '150 characters or fewer. Letters, digits and @/./+/-/_ only.')
     )
     first_name = models.CharField(
         _('first name'),
-        max_length=150,
+        max_length=settings.MAX_LENGHTH_NAME,
         blank=True
     )
     last_name = models.CharField(
         _('last name'),
-        max_length=150,
+        max_length=settings.MAX_LENGHTH_NAME,
         blank=True
     )
     profile_image = models.ImageField(
@@ -99,4 +101,7 @@ class Follow(models.Model):
         ]
 
     def __str__(self):
-        return f'{self.follower.username} подписан на {self.following.username}'
+        return (
+            f'{self.follower.username} '
+            f'подписан на {self.following.username}'
+        )

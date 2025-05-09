@@ -1,5 +1,5 @@
 import django_filters
-from recipes.models import Ingredient, Dish
+from recipes.models import Ingredient, Recipe
 
 
 class IngredientFilter(django_filters.FilterSet):
@@ -17,14 +17,14 @@ class IngredientFilter(django_filters.FilterSet):
         return queryset.filter(name__istartswith=value.lower())
 
 
-class DishFilter(django_filters.FilterSet):
+class RecipeFilter(django_filters.FilterSet):
     """Фильтрация рецептов"""
     creator = django_filters.NumberFilter(field_name='author_id')
     bookmarked = django_filters.BooleanFilter(method='filter_bookmarked')
     in_cart = django_filters.BooleanFilter(method='filter_in_cart')
 
     class Meta:
-        model = Dish
+        model = Recipe
         fields = ['creator', 'bookmarked', 'in_cart']
 
     def filter_bookmarked(self, queryset, name, value):

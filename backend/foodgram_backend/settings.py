@@ -21,7 +21,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_filters",
-    
+
     "rest_framework",
     "rest_framework.authtoken",
     "rest_framework_simplejwt",
@@ -135,7 +135,7 @@ DJOSER = {
         "user": ["djoser.permissions.CurrentUserOrAdminOrReadOnly"],
         "user_list": ["rest_framework.permissions.IsAuthenticatedOrReadOnly"],
     },
-    "HIDE_USERS": False, 
+    "HIDE_USERS": False,
 }
 
 # Доверенные Origin’ы для CSRF (схема://хост[:порт])
@@ -152,4 +152,6 @@ MIN_INGREDIENT_AMOUNT = 1
 MAX_LENGHT_INGREDIENT_NAME = 128
 MAX_LENGHT_MEASUREMENT_UNIT = 64
 MIN_INGREDIENT_QUANTITY = 1
-MAX_LENGHT_DISH_NAME = 256
+MAX_LENGHT_RECIPE_NAME = 256
+MAX_LENGHTH_EMAIL = 254
+MAX_LENGHTH_NAME = 150

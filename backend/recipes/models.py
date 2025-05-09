@@ -1,7 +1,12 @@
-from django.core.validators import MinValueValidator, MaxValueValidator, FileExtensionValidator
-from django.db import models
-from users.models import CustomUser
 from django.conf import settings
+from django.core.validators import (
+    FileExtensionValidator,
+    MaxValueValidator,
+    MinValueValidator,
+)
+from django.db import models
+
+from users.models import CustomUser
 
 class Ingredient(models.Model):
     """Модель для хранения данных об ингредиентах."""
@@ -30,22 +35,27 @@ class Ingredient(models.Model):
         return f"{self.name}, {self.measurement_unit}"
 
 
-class Dish(models.Model):
+class Recipe(models.Model):
     """Модель рецептов."""
     name = models.CharField(
-        max_length=settings.MAX_LENGHT_DISH_NAME,
+        max_length=settings.MAX_LENGHT_RECIPE_NAME,
         verbose_name="Наименование блюда"
     )
     text = models.TextField(verbose_name="Текст рецепта")
     image = models.ImageField(
         upload_to="recipes/images/",
-        validators=[FileExtensionValidator(allowed_extensions=["jpg", "jpeg", "png"])],
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=[
+                    "jpg",
+                    "jpeg",
+                    "png"])],
         verbose_name="Изображение"
     )
     author = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
-        related_name="created_dishes",
+        related_name="created_recipes",
         verbose_name="Создатель"
     )
     cooking_time = models.PositiveSmallIntegerField(
@@ -58,7 +68,7 @@ class Dish(models.Model):
     components = models.ManyToManyField(
         Ingredient,
         through="IngredientAmount",
-        related_name="used_in_dishes"
+        related_name="used_in_recipes"
     )
     pub_date = models.DateTimeField(
         auto_now_add=True,
@@ -78,7 +88,7 @@ class Dish(models.Model):
 class IngredientAmount(models.Model):
     """Связующая модель для ингредиентов в рецепте."""
     recipe = models.ForeignKey(
-        Dish,
+        Recipe,
         on_delete=models.CASCADE,
         related_name="components_amounts"
     )
@@ -87,7 +97,7 @@ class IngredientAmount(models.Model):
         on_delete=models.CASCADE,
         related_name="recipes_amounts"
     )
-    quantity = models.PositiveSmallIntegerField(
+    amount = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(settings.MIN_INGREDIENT_QUANTITY)],
         verbose_name="Количество (в единицах измерения ингредиента)"
     )
@@ -103,7 +113,11 @@ class IngredientAmount(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.quantity} {self.ingredient.measurement_unit} {self.ingredient.name}"
+        return (
+            f"{self.amount} "
+            f"{self.ingredient.measurement_unit} "
+            f"{self.ingredient.name}"
+        )
 
 
 class Favorite(models.Model):
@@ -114,7 +128,7 @@ class Favorite(models.Model):
         related_name="favorites"
     )
     recipe = models.ForeignKey(
-        Dish,
+        Recipe,
         on_delete=models.CASCADE,
         related_name="favorited_by"
     )
@@ -141,7 +155,7 @@ class ShoppingList(models.Model):
         related_name="shopping_lists"
     )
     recipe = models.ForeignKey(
-        Dish,
+        Recipe,
         on_delete=models.CASCADE,
         related_name="in_shopping_lists"
     )
