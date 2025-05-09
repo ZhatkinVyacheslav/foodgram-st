@@ -11,7 +11,7 @@ class CustomUser(AbstractUser):
     email = models.EmailField(
         _('email address'),
         unique=True,
-        max_length=settings.MAX_EMAIL_LENGHTH,
+        max_length=settings.MAX_LENGHTH_EMAIL,
         help_text=_('Required. 254 characters or fewer.')
     )
     username = models.CharField(
