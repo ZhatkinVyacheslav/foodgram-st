@@ -1,3 +1,4 @@
+from django.conf import settings
 from djoser.serializers import UserSerializer as DjoserUserSerializer
 from drf_extra_fields.fields import Base64ImageField
 from rest_framework import serializers
@@ -18,6 +19,13 @@ class IngredientAmountWriteSerializer(serializers.ModelSerializer):
         queryset=Ingredient.objects.all(),
         source="ingredient"
     )
+
+    def validate_amount(self, value):
+        if value < settings.MIN_INGREDIENT_QUANTITY:
+            raise serializers.ValidationError("Количество должно быть больше нуля.")
+        elif value > settings.MIN_INGREDIENT_AMOUNT:
+            raise serializers.ValidationError("Слишком большое количество ингредиента.")
+        return value
 
     class Meta:
         model = IngredientAmount
@@ -42,17 +50,6 @@ class IngredientSerializer(serializers.ModelSerializer):
         model = Ingredient
         fields = ("id", "name", "measurement_unit")
         read_only_fields = fields
-
-
-class RecipesLimitQuerySerializer(serializers.Serializer):
-    """Параметр recipes_limit из query-параметров запроса."""
-    recipes_limit = serializers.IntegerField(
-        required=False, min_value=1,
-        error_messages={
-            'invalid': 'recipes_limit должен быть числом',
-            'min_value': 'recipes_limit должен быть больше 0'
-        }
-    )
 
 
 class PublicUserSerializer(DjoserUserSerializer):
@@ -90,10 +87,12 @@ class SubscribedAuthorSerializer(PublicUserSerializer):
         if not request:
             return []
 
-        query_serializer = RecipesLimitQuerySerializer(
-            data=request.query_params)
-        query_serializer.is_valid(raise_exception=True)
-        limit = query_serializer.validated_data.get("recipes_limit", 10**10)
+        try:
+            limit = int(request.query_params.get("recipes_limit", 10**10))
+            if limit < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise serializers.ValidationError("recipes_limit должен быть положительным числом")
 
         queryset = author.recipes.all()[:limit]
         return CompactRecipeSerializer(queryset, many=True).data
@@ -108,27 +107,19 @@ class CompactRecipeSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class RecipeSerializer(serializers.ModelSerializer):
-    """Полное представление рецепта."""
+class RecipeWriteSerializer(serializers.ModelSerializer):
+    """Сериализатор для создания и редактирования рецепта."""
     ingredients = IngredientAmountWriteSerializer(
-        source="components_amounts", many=True, write_only=True
-    )
-    read_only_ingredients = IngredientAmountReadSerializer(
-        source="components_amounts", many=True, read_only=True
+        source="components_amounts", many=True
     )
     image = Base64ImageField(required=True)
-    author = PublicUserSerializer(read_only=True)
-    is_favorited = serializers.SerializerMethodField()
-    is_in_shopping_cart = serializers.SerializerMethodField()
 
     class Meta:
         model = Recipe
         fields = (
             "id", "name", "text", "cooking_time", "image",
-            "author", "ingredients", "read_only_ingredients",
-            "is_favorited", "is_in_shopping_cart"
+            "ingredients"
         )
-        read_only_fields = ("author", "is_favorited", "is_in_shopping_cart")
 
     def validate_ingredients(self, value):
         if not value:
@@ -145,19 +136,6 @@ class RecipeSerializer(serializers.ModelSerializer):
             ) for item in items
         ])
 
-    def _is_related_to_user(self, model, recipe):
-        request = self.context.get("request")
-        return (
-            request and request.user.is_authenticated
-            and model.objects.filter(user=request.user, recipe=recipe).exists()
-        )
-
-    def get_is_favorited(self, object):
-        return self._is_related_to_user(Favorite, object)
-
-    def get_is_in_shopping_cart(self, object):
-        return self._is_related_to_user(ShoppingList, object)
-
     def create(self, validated_data):
         ingredients = validated_data.pop("components_amounts", [])
         recipe = Recipe.objects.create(**validated_data)
@@ -171,6 +149,37 @@ class RecipeSerializer(serializers.ModelSerializer):
         self._bulk_save_ingredients(instance, ingredients)
         return instance
 
+
+class RecipeReadSerializer(serializers.ModelSerializer):
+    """Сериализатор для чтения рецепта (GET-запросы)."""
+    ingredients = IngredientAmountReadSerializer(
+        source="components_amounts", many=True, read_only=True
+    )
+    image = Base64ImageField()
+    author = PublicUserSerializer(read_only=True)
+    is_favorited = serializers.SerializerMethodField()
+    is_in_shopping_cart = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Recipe
+        fields = (
+            "id", "name", "text", "cooking_time", "image",
+            "author", "ingredients",
+            "is_favorited", "is_in_shopping_cart"
+        )
+
+    def _is_related_to_user(self, model, recipe):
+        request = self.context.get("request")
+        return (
+            request and request.user.is_authenticated
+            and model.objects.filter(user=request.user, recipe=recipe).exists()
+        )
+
+    def get_is_favorited(self, obj):
+        return self._is_related_to_user(Favorite, obj)
+
+    def get_is_in_shopping_cart(self, obj):
+        return self._is_related_to_user(ShoppingList, obj)
 
 class ProfileImageSerializer(serializers.ModelSerializer):
     profile_image = Base64ImageField(required=False)

@@ -30,7 +30,6 @@ docker-compose up -d --build
 
 ### Примените миграции
 ```bash
-docker-compose exec backend python manage.py makemigrates
 docker-compose exec backend python manage.py migrate
 ```
 

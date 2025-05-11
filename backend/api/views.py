@@ -1,13 +1,10 @@
 from collections import defaultdict
-
 from django.db.models import Prefetch
 from django.http import FileResponse
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-
 from djoser.serializers import UserCreateSerializer
 from djoser.views import UserViewSet as BaseUserController
-
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -26,7 +23,8 @@ from .filters import IngredientFilter, RecipeFilter
 from .pagination import CustomPagination
 from .serializers import (
     IngredientSerializer,
-    RecipeSerializer,
+    RecipeReadSerializer,
+    RecipeWriteSerializer,
     CompactRecipeSerializer,
     SubscribedAuthorSerializer,
     PublicUserSerializer,
@@ -46,7 +44,6 @@ class ComponentListController(viewsets.ReadOnlyModelViewSet):
 class RecipeController(viewsets.ModelViewSet):
     """Управление рецептами и связанными действиями."""
     queryset = Recipe.objects.all()
-    serializer_class = RecipeSerializer
     permission_classes = (IsAuthenticatedOrReadOnly,)
     pagination_class = CustomPagination
     filterset_class = RecipeFilter
@@ -69,6 +66,12 @@ class RecipeController(viewsets.ModelViewSet):
             user=request.user, recipe=recipe_instance
         ).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def get_serializer_class(self):
+        if self.action in ["list", "retrieve"]:
+            return RecipeReadSerializer
+        return RecipeWriteSerializer
+
 
     def perform_create(self, serializer):
         """Сохранение рецепта с указанием автора."""
@@ -206,17 +209,18 @@ class AccountController(BaseUserController):
                 to_attr="subscribed_authors"
             )
         ).filter(following__follower=request.user)
-        paginator = PageNumberPagination()
-        paginator.page_size = int(request.query_params.get("limit", 6))
-        page = paginator.paginate_queryset(subscriptions, request)
 
-        authors = [sub.following for sub in page]
+        page = self.paginate_queryset(subscriptions)
+        if page is not None:
+            serializer = SubscribedAuthorSerializer(
+                page, many=True, context={"request": request}
+            )
+            return self.get_paginated_response(serializer.data)
+
         serializer = SubscribedAuthorSerializer(
-            authors,
-            many=True,
-            context={"request": request},
+            subscriptions, many=True, context={"request": request}
         )
-        return paginator.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     @action(
         detail=False,

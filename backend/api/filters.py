@@ -19,13 +19,12 @@ class IngredientFilter(django_filters.FilterSet):
 
 class RecipeFilter(django_filters.FilterSet):
     """Фильтрация рецептов"""
-    creator = django_filters.NumberFilter(field_name='author_id')
     bookmarked = django_filters.BooleanFilter(method='filter_bookmarked')
     in_cart = django_filters.BooleanFilter(method='filter_in_cart')
 
     class Meta:
         model = Recipe
-        fields = ['creator', 'bookmarked', 'in_cart']
+        fields = ['author', 'bookmarked', 'in_cart']
 
     def filter_bookmarked(self, queryset, name, value):
         """Фильтрация по избранным рецептам."""
