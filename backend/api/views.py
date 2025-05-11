@@ -225,7 +225,7 @@ class AccountController(BaseUserController):
         url_path="me/avatar",
         parser_classes=[JSONParser, MultiPartParser, FormParser],
     )
-    def update_avatar(self, request):
+    def update_profile_image (self, request):
         user = CustomUser.objects.get(pk=request.user.pk)
         serializer = ProfileImageSerializer(
             user, data=request.data, partial=True, context={'request': request}
